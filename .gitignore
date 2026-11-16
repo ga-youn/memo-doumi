@@ -1,0 +1,31 @@
+# 빌드 결과와 검증·측정용 임시 폴더
+/build/
+
+# 배포 ZIP과 로컬에서 쓰는 앱 폴더 (실제 메모가 들어 있을 수 있음 — 절대 커밋하지 않는다)
+/release/
+
+# 앱이 실행 폴더에 만드는 사용자 데이터
+data/
+*.orig
+error.log
+error.old.log
+
+# 측정 원본 (용량이 크고 PC 계정 식별자·로컬 경로가 들어 있음)
+/docs/performance/
+
+# 실행 파일·임시 파일
+*.exe
+*.pdb
+*.tmp
+*.bak
+
+# 편집기·OS
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+Thumbs.db
+Desktop.ini
+__pycache__/
+*.pyc
