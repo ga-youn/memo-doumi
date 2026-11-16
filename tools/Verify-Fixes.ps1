@@ -7,19 +7,26 @@ $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 $refs = '/r:System.dll', '/r:System.Core.dll', '/r:System.Drawing.dll', '/r:System.Windows.Forms.dll', '/r:System.Runtime.Serialization.dll', '/r:System.Xml.dll'
 
 function Build([string]$src, [string]$main, [string]$entry, [string]$out) {
-    & $csc /nologo /codepage:65001 /target:winexe /optimize+ /platform:anycpu32bitpreferred "/main:$main" @refs "/win32manifest:$root\app.manifest" "/out:$out" (Join-Path $src '*.cs') (Join-Path $root "tools\$entry")
+    $extra = @()
+    if ($entry -eq "VerifyMain.cs") { $extra += Join-Path $root "tools\VerificationAccess.cs" }
+    & $csc /nologo /codepage:65001 /target:winexe /optimize+ /platform:anycpu32bitpreferred "/main:$main" @refs "/win32manifest:$root\app.manifest" "/out:$out" (Join-Path $src '*.cs') (Join-Path $root "tools\$entry") @extra
     if ($LASTEXITCODE -ne 0) { throw "Compile failed: $entry" }
 }
 
 function Invoke-Phase([string]$dir, [string]$scenario, [string]$phase) {
+    $marker = Join-Path $dir "$scenario-$phase.complete"
+    if (Test-Path -LiteralPath $marker) { Remove-Item -LiteralPath $marker }
     $p = Start-Process (Join-Path $dir 'VerifyMemo.exe') -ArgumentList $scenario, $phase -WorkingDirectory $dir -WindowStyle Hidden -PassThru
     if (!$p.WaitForExit(120000)) { Stop-Process -Id $p.Id; throw "Timeout: $scenario/$phase" }
+    if ($p.ExitCode -ne 0) { throw "Failed: $scenario/$phase (exit=$($p.ExitCode)); see $dir\results.txt" }
+    if (!(Test-Path -LiteralPath $marker) -or [IO.File]::ReadAllText($marker).Trim() -ne "0") { throw "Incomplete phase: $scenario/$phase" }
 }
 
 $exe = Join-Path $run 'VerifyMemo.exe'
 Build (Join-Path $root 'src') 'MemoDoumi.VerifyMain' 'VerifyMain.cs' $exe
 
 $plan = [ordered]@{
+    codec    = @('run')
     links    = @('run')
     ids      = @('prepare', 'run1', 'run2')
     migrate  = @('prepare', 'run1', 'run2', 'run3')
@@ -33,6 +40,22 @@ $plan = [ordered]@{
     fonts    = @('prepare', 'run')
 }
 $all = @()
+$earlyDir = Join-Path $run 'earlyexit'
+New-Item -ItemType Directory -Path $earlyDir | Out-Null
+Copy-Item $exe $earlyDir
+Invoke-Phase $earlyDir 'earlyexit' 'prepare'
+$rejected = $false
+try { Invoke-Phase $earlyDir 'earlyexit' 'run' }
+catch { $rejected = $true }
+$earlyResults = Join-Path $earlyDir 'results.txt'
+$expectedFailure = Test-Path -LiteralPath $earlyResults
+if ($expectedFailure) {
+    $expectedFailure = [IO.File]::ReadAllText($earlyResults).Contains("FAIL`tearlyexit/run`tUI steps completed`t1/2")
+}
+if (!$rejected -or !$expectedFailure -or (Test-Path (Join-Path $earlyDir 'unexpected-step.txt'))) {
+    throw "Early-exit regression failed: $earlyDir"
+}
+$all += "PASS`trunner/earlyexit`tNormal exit with unexecuted UI steps is rejected"
 foreach ($scenario in $plan.Keys) {
     $dir = Join-Path $run $scenario
     New-Item -ItemType Directory -Path $dir | Out-Null

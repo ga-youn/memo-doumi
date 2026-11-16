@@ -97,7 +97,7 @@ namespace MemoDoumi
         }
     }
 
-    internal class SearchForm : Form
+    internal partial class SearchForm : Form
     {
         class Hit
         {

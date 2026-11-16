@@ -8,7 +8,7 @@ using Microsoft.Win32;
 namespace MemoDoumi
 {
 
-    internal class App
+    internal partial class App
     {
         public const string ShowMessageName = "MemoDoumi.ShowNotes";
         public const string QuitMessageName = "MemoDoumi.Quit";

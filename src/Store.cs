@@ -9,51 +9,6 @@ using System.Text;
 
 namespace MemoDoumi
 {
-    [DataContract]
-    public class NoteData
-    {
-        [DataMember(Order = 0)] public string Id;
-        [DataMember(Order = 1)] public string Text;
-        [DataMember(Order = 2)] public int X;
-        [DataMember(Order = 3)] public int Y;
-        [DataMember(Order = 4)] public int W;
-        [DataMember(Order = 5)] public int H;
-        [DataMember(Order = 6)] public int Color;
-        [DataMember(Order = 7)] public bool Pinned;
-        [DataMember(Order = 8)] public bool Anchored;     // true 면 X,Y 는 강아지 기준 상대 위치
-        [DataMember(Order = 9)] public bool Closed;
-        [DataMember(Order = 10)] public long Sort;
-        [DataMember(Order = 11)] public bool Md;
-        [DataMember(Order = 12)] public long CreatedUtc;
-        [DataMember(Order = 13)] public long ModifiedUtc;
-
-        // 서식 기호를 뺀 본문을 한 번만 계산해 두는 자리 (저장하지 않는다)
-        internal string PlainSource, PlainValue;
-    }
-
-    [DataContract]
-    public class AppData
-    {
-        [DataMember(Order = 0)] public List<NoteData> Notes;
-        [DataMember(Order = 1)] public bool NotesVisible;
-        [DataMember(Order = 2)] public int LastColor;
-        [DataMember(Order = 3)] public bool HasMascotPos;
-        [DataMember(Order = 4)] public int MascotX;
-        [DataMember(Order = 5)] public int MascotY;
-        [DataMember(Order = 6)] public bool StayPut;
-        [DataMember(Order = 7)] public string CurrentId;
-    }
-
-    internal class SaveException : Exception
-    {
-        public readonly List<string> Failures;
-
-        public SaveException(List<string> failures, Exception first)
-            : base(failures.Count == 1 ? failures[0] : failures[0] + " 외 " + (failures.Count - 1) + "건", first)
-        {
-            Failures = failures;
-        }
-    }
 
     internal static class Store
     {
@@ -90,7 +45,7 @@ namespace MemoDoumi
             public bool Matches(NoteData n)
             {
                 return ReferenceEquals(text, n.Text) && w == n.W && h == n.H && color == n.Color
-                    && anchored == n.Anchored && (!n.Anchored || (x == n.X && y == n.Y))
+                    && anchored == n.Anchored && (!(n.Anchored || n.Pinned) || (x == n.X && y == n.Y))
                     && pinned == n.Pinned && closed == n.Closed && md == n.Md
                     && sort == n.Sort && created == n.CreatedUtc && modified == n.ModifiedUtc;
             }
@@ -419,86 +374,8 @@ namespace MemoDoumi
             }
         }
 
-        internal static string NormalizeId(string raw)
-        {
-            Guid g;
-            if (raw == null || !Guid.TryParse(raw.Trim(), out g) || g == Guid.Empty) return null;
-            return g.ToString("N");
-        }
-
-        internal static NoteData Parse(string content, out bool hadHeader, out bool badId)
-        {
-            var n = new NoteData();
-            hadHeader = badId = false;
-            string text = content.Replace("\r\n", "\n");
-            if (text.StartsWith("---\n"))
-            {
-                int end = text.IndexOf("\n---\n", 3, StringComparison.Ordinal);
-                if (end >= 0)
-                {
-                    hadHeader = true;
-                    foreach (string line in text.Substring(4, end - 4 + 1).Split('\n'))
-                    {
-                        int c = line.IndexOf(':');
-                        if (c <= 0) continue;
-                        string key = line.Substring(0, c).Trim(), val = line.Substring(c + 1).Trim();
-                        switch (key)
-                        {
-                            case "id": n.Id = NormalizeId(val); badId = n.Id == null; break;
-                            case "color": n.Color = Palette.Clamp(Int(val)); break;
-                            case "size": { string[] p = val.Split('x'); if (p.Length == 2) { n.W = Int(p[0]); n.H = Int(p[1]); } } break;
-                            case "pos": { string[] p = val.Split(','); if (p.Length == 2) { n.X = Int(p[0]); n.Y = Int(p[1]); n.Anchored = true; } } break;
-                            case "pinned": n.Pinned = val == "true"; break;
-                            case "closed": n.Closed = val == "true"; break;
-                            case "format": n.Md = val == "md"; break;
-                            case "created": n.CreatedUtc = ParseTime(val); break;
-                            case "modified": n.ModifiedUtc = ParseTime(val); break;
-                            case "order": long.TryParse(val, out n.Sort); break;
-                        }
-                    }
-                    text = text.Substring(end + 5);
-                }
-            }
-            if (!hadHeader) n.Md = true;
-            if (text.EndsWith("\n")) text = text.Substring(0, text.Length - 1);
-            n.Text = text;
-            Sanitize(n);
-            return n;
-        }
-
-        static void Sanitize(NoteData n)
-        {
-            n.Color = Palette.Clamp(n.Color);
-            if (n.W < 0 || n.H < 0) n.W = n.H = 0;
-            n.W = Math.Min(n.W, MaxSide);
-            n.H = Math.Min(n.H, MaxSide);
-            if (Math.Abs((long)n.X) > MaxCoord || Math.Abs((long)n.Y) > MaxCoord) { n.X = n.Y = 0; n.Anchored = false; }
-            if (n.Sort < 0) n.Sort = 0;
-            if (!ValidTicks(n.CreatedUtc)) n.CreatedUtc = 0;
-            if (!ValidTicks(n.ModifiedUtc)) n.ModifiedUtc = 0;
-        }
-
-        const string TimeFormat = "yyyy-MM-dd HH:mm:ss";
-
-        static long ParseTime(string s)
-        {
-            DateTime t;
-            if (DateTime.TryParseExact(s, TimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out t))
-                return t.ToUniversalTime().Ticks;
-            return 0;
-        }
-
-        static string FormatTime(long utcTicks)
-        {
-            return new DateTime(utcTicks, DateTimeKind.Utc).ToLocalTime().ToString(TimeFormat, CultureInfo.InvariantCulture);
-        }
-
-        static int Int(string s)
-        {
-            int v;
-            int.TryParse(s.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out v);
-            return v;
-        }
+        internal static string NormalizeId(string raw) { return NoteCodec.NormalizeId(raw); }
+        internal static NoteData Parse(string text, out bool header, out bool badId) { return NoteCodec.Parse(text, out header, out badId); }
 
         static void ConvertOldJson(AppData d, bool hadSettings)
         {
@@ -537,7 +414,7 @@ namespace MemoDoumi
                     if (!seen.Add(o.Id)) o.Id = Migration.StableId(index, "dup:" + rawId, o.Text);
                     seen.Add(o.Id);
                     if (o.Sort <= 0) o.Sort = index;
-                    Sanitize(o);
+                    NoteCodec.Sanitize(o);
                     if (saved.ContainsKey(o.Id)) { already++; continue; }
                     moved.Add(o);
                     d.Notes.Add(o);
@@ -564,24 +441,7 @@ namespace MemoDoumi
             }
         }
 
-        static string Compose(NoteData n)
-        {
-            var sb = new StringBuilder((n.Text ?? "").Length + 256);
-            sb.Append("---\n");
-            sb.Append("id: ").Append(n.Id).Append('\n');
-            sb.Append("color: ").Append(n.Color).Append('\n');
-            sb.Append("size: ").Append(n.W).Append('x').Append(n.H).Append('\n');
-            if (n.Anchored) sb.Append("pos: ").Append(n.X).Append(',').Append(n.Y).Append('\n');
-            sb.Append("pinned: ").Append(n.Pinned ? "true" : "false").Append('\n');
-            sb.Append("closed: ").Append(n.Closed ? "true" : "false").Append('\n');
-            if (n.Md) sb.Append("format: md\n");
-            if (ValidTicks(n.CreatedUtc)) sb.Append("created: ").Append(FormatTime(n.CreatedUtc)).Append('\n');
-            if (ValidTicks(n.ModifiedUtc)) sb.Append("modified: ").Append(FormatTime(n.ModifiedUtc)).Append('\n');
-            sb.Append("order: ").Append(n.Sort).Append('\n');
-            sb.Append("---\n");
-            sb.Append((n.Text ?? "").Replace("\r\n", "\n")).Append('\n');
-            return sb.ToString().Replace("\n", "\r\n");
-        }
+        static string Compose(NoteData n) { return NoteCodec.Compose(n); }
 
         static string FileNameOf(NoteData n)
         {
@@ -809,214 +669,6 @@ namespace MemoDoumi
             {
                 return null;
             }
-        }
-    }
-
-    internal static class FileKind
-    {
-        struct Sig
-        {
-            public readonly string Name;
-            public readonly byte[] Head;
-            public readonly int At2;
-            public readonly byte[] Head2;
-            public Sig(string name, string head, int at2 = 0, string head2 = null)
-            {
-                Name = name;
-                Head = Latin1(head);
-                At2 = at2;
-                Head2 = head2 == null ? null : Latin1(head2);
-            }
-        }
-
-        static byte[] Latin1(string s)
-        {
-            var b = new byte[s.Length];
-            for (int i = 0; i < s.Length; i++) b[i] = (byte)s[i];
-            return b;
-        }
-
-        static readonly Sig[] Sigs =
-        {
-            new Sig("PDF", "%PDF-"),
-            new Sig("PostScript", "%!PS-Adobe"),
-            new Sig("RTF 문서", "{\\rtf"),
-            new Sig("ZIP 계열(docx·xlsx·hwpx 등)", "PK\x03\x04"),
-            new Sig("ZIP 계열(docx·xlsx·hwpx 등)", "PK\x05\x06"),
-            new Sig("ZIP 계열(docx·xlsx·hwpx 등)", "PK\x07\x08"),
-            new Sig("옛 Office·한글(hwp) 문서", "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"),
-            new Sig("PNG 그림", "\x89PNG\r\n\x1A\n"),
-            new Sig("GIF 그림", "GIF87a"),
-            new Sig("GIF 그림", "GIF89a"),
-            new Sig("JPEG 그림", "\xFF\xD8\xFF"),
-            new Sig("WebP 그림", "RIFF", 8, "WEBP"),
-            new Sig("WAV 소리", "RIFF", 8, "WAVE"),
-            new Sig("AVI 영상", "RIFF", 8, "AVI "),
-            new Sig("MP4 영상", "\x00\x00\x00", 4, "ftyp"),
-            new Sig("Ogg 소리", "OggS"),
-            new Sig("FLAC 소리", "fLaC"),
-            new Sig("RAR 압축", "Rar!\x1A\x07"),
-            new Sig("7z 압축", "7z\xBC\xAF\x27\x1C"),
-            new Sig("gzip 압축", "\x1F\x8B\x08"),
-            new Sig("ELF 실행", "\x7F" + "ELF"),
-            new Sig("SQLite 데이터베이스", "SQLite format 3"),
-        };
-
-        public static string Binary(byte[] b)
-        {
-            int start = b.Length >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF ? 3 : 0;
-            foreach (Sig s in Sigs)
-                if (At(b, start, s.Head) && (s.Head2 == null || At(b, start + s.At2, s.Head2))) return s.Name;
-            return null;
-        }
-
-        static bool At(byte[] b, int at, byte[] head)
-        {
-            if (b.Length - at < head.Length) return false;
-            for (int i = 0; i < head.Length; i++) if (b[at + i] != head[i]) return false;
-            return true;
-        }
-    }
-
-    internal static class Originals
-    {
-
-        internal static Action<string> BeforeVerify { get; set; }
-
-        public static bool Backup(string dir, string name, byte[] bytes)
-        {
-            string hash = Hash(bytes);
-            Directory.CreateDirectory(dir);
-            string stem = name + "." + hash.Substring(0, 16);
-            string dest = Path.Combine(dir, stem + ".orig");
-            for (int i = 2; File.Exists(dest) || Directory.Exists(dest); i++)
-            {
-                if (File.Exists(dest) && Matches(dest, bytes.Length, hash)) return false;
-                if (i > 100) throw new IOException("백업 파일 이름을 정하지 못했습니다");
-                dest = Path.Combine(dir, stem + " (" + i + ").orig");
-            }
-            string tmp = dest + ".tmp";
-            try
-            {
-                using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
-                {
-                    fs.Write(bytes, 0, bytes.Length);
-                    fs.Flush(true);
-                }
-                if (BeforeVerify != null) BeforeVerify(tmp);
-                if (!Matches(tmp, bytes.Length, hash)) throw new IOException("백업한 내용이 원본과 다릅니다");
-                File.Move(tmp, dest);
-            }
-            catch
-            {
-                try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
-                throw;
-            }
-            return true;
-        }
-
-        static bool Matches(string path, int length, string hash)
-        {
-            if (new FileInfo(path).Length != length) return false;
-            return Hash(File.ReadAllBytes(path)) == hash;
-        }
-
-        public static string Hash(byte[] bytes)
-        {
-            using (var sha = SHA256.Create())
-                return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant();
-        }
-    }
-
-    internal static class Migration
-    {
-        const string DoneName = "migration.done";
-        const string PendingName = "migration.pending";
-        const string LegacyMarkerName = "migrated-to-MemoDoumi.txt";
-
-        public static string PendingPath(string dataDir) { return Path.Combine(dataDir, PendingName); }
-
-        public static bool CopyLegacy(string legacyDir, string dataDir)
-        {
-            string src = Path.Combine(legacyDir, "notes.json");
-            if (!File.Exists(src)) return false;
-
-            if (Directory.Exists(Path.Combine(dataDir, "notes")) || File.Exists(Path.Combine(dataDir, "notes.json"))) return false;
-            if (File.Exists(Path.Combine(dataDir, DoneName)) || File.Exists(Path.Combine(legacyDir, LegacyMarkerName))) return false;
-
-            Directory.CreateDirectory(dataDir);
-            string bak = src + ".bak";
-            if (File.Exists(bak)) CopyVerified(bak, Path.Combine(dataDir, "notes.json.bak"));
-            CopyVerified(src, Path.Combine(dataDir, "notes.json"));
-            return true;
-        }
-
-        static void CopyVerified(string src, string dest)
-        {
-            if (File.Exists(dest)) return;
-            string tmp = dest + ".copying";
-            File.Copy(src, tmp, true);
-            if (!SameContent(src, tmp))
-            {
-                File.Delete(tmp);
-                throw new IOException("복사한 파일이 원본과 다릅니다: " + Path.GetFileName(src));
-            }
-            File.Move(tmp, dest);
-        }
-
-        static bool SameContent(string a, string b)
-        {
-            if (new FileInfo(a).Length != new FileInfo(b).Length) return false;
-            return Hash(a) == Hash(b);
-        }
-
-        static string Hash(string path)
-        {
-            using (var sha = SHA256.Create())
-            using (var fs = File.OpenRead(path))
-                return Convert.ToBase64String(sha.ComputeHash(fs));
-        }
-
-        public static string StableId(int index, string rawId, string text)
-        {
-            using (var md5 = MD5.Create())
-                return new Guid(md5.ComputeHash(Encoding.UTF8.GetBytes("legacy|" + index + "|" + rawId + "|" + text))).ToString("N");
-        }
-
-        public static void WritePending(string dataDir)
-        {
-            File.WriteAllText(PendingPath(dataDir), "notes.json 을 .md 로 옮기는 중입니다. 끝나면 이 파일은 사라집니다.\r\n" + DateTime.Now.ToString("o") + "\r\n");
-        }
-
-        public static string Finish(string dataDir, string legacyDir, string oldJsonPath, int notes)
-        {
-            string kept = oldJsonPath + ".migrated";
-            for (int i = 2; File.Exists(kept); i++) kept = oldJsonPath + ".migrated" + i;
-            bool fromLegacy = false;
-            try
-            {
-                string legacyJson = Path.Combine(legacyDir, "notes.json");
-                fromLegacy = File.Exists(legacyJson) && SameContent(legacyJson, oldJsonPath);
-            }
-            catch { }
-            File.Move(oldJsonPath, kept);
-
-            string text = "예전 메모를 옮겼습니다.\r\n시각: " + DateTime.Now.ToString("o") + "\r\n메모 수: " + notes +
-                          "\r\n원본(보존): " + Path.GetFileName(kept) + (fromLegacy ? "\r\n가져온 곳(보존): " + legacyDir : "") + "\r\n";
-            File.WriteAllText(Path.Combine(dataDir, DoneName), text);
-            File.Delete(PendingPath(dataDir));
-            if (fromLegacy)
-            {
-
-                try
-                {
-                    File.WriteAllText(Path.Combine(legacyDir, LegacyMarkerName),
-                        "이 폴더의 메모는 메모도우미(MemoDoumi)로 복사되었습니다. 이 폴더는 자동으로 지워지지 않습니다.\r\n" +
-                        "새 위치: " + dataDir + "\r\n시각: " + DateTime.Now.ToString("o") + "\r\n");
-                }
-                catch (Exception ex) { App.Log(ex); }
-            }
-            return Path.GetFileName(kept);
         }
     }
 }

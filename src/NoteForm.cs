@@ -54,7 +54,7 @@ namespace MemoDoumi
         }
     }
 
-    internal class IconButton : Label
+    internal partial class IconButton : Label
     {
         static readonly Font IconFont = new Font("Segoe MDL2 Assets", 9f);
         Color normal, hover;
@@ -93,7 +93,7 @@ namespace MemoDoumi
         }
     }
 
-    internal class NoteForm : Form
+    internal partial class NoteForm : Form
     {
         // 공유 글꼴은 개별 창에서 Dispose하지 않는다.
         static readonly Font NoteFont = Fonts.Make(10.5f);

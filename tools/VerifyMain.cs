@@ -1,8 +1,7 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -15,7 +14,6 @@ namespace MemoDoumi
     {
         [DllImport("user32.dll")] static extern uint GetGuiResources(IntPtr h, uint flag);
 
-        const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
         static readonly Encoding Utf8 = new UTF8Encoding(false);
         static string Base, DataDir, NotesDir, TrashDir;
         static int failures;
@@ -48,11 +46,10 @@ namespace MemoDoumi
 
         static void Write(string name, string content) { File.WriteAllText(Path.Combine(NotesDir, name), content, Utf8); }
 
-        static object Field(object o, string name) { return o.GetType().GetField(name, Private).GetValue(o); }
-        static NoteForm FormOf(App app, NoteData d) { return (NoteForm)typeof(App).GetMethod("FormOf", Private).Invoke(app, new object[] { d }); }
-        static NoteForm FindForm(App app, NoteData d) { return (NoteForm)typeof(App).GetMethod("FindForm", Private).Invoke(app, new object[] { d }); }
-        static RichTextBox BoxOf(NoteForm f) { return (RichTextBox)Field(f, "box"); }
-        static System.Collections.ICollection Forms(App app) { return (System.Collections.ICollection)Field(app, "notes"); }
+        static NoteForm FormOf(App app, NoteData d) { return app.VerifyForm(d); }
+        static NoteForm FindForm(App app, NoteData d) { return app.VerifyFind(d); }
+        static RichTextBox BoxOf(NoteForm f) { return f.VerifyEditor; }
+        static System.Collections.ICollection Forms(App app) { return app.VerifyForms; }
         static uint UserObjects() { using (var p = System.Diagnostics.Process.GetCurrentProcess()) return GetGuiResources(p.Handle, 1); }
         static uint GdiObjects() { using (var p = System.Diagnostics.Process.GetCurrentProcess()) return GetGuiResources(p.Handle, 0); }
 
@@ -89,24 +86,35 @@ namespace MemoDoumi
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             var app = new App();
-            int i = -1;
+            int i = -1, completed = 0;
             bool busy = false;
             var timer = new Timer();
             timer.Interval = 200;
-            Application.ThreadException += (s, e) => { Check(false, "처리되지 않은 예외", e.Exception.ToString().Replace("\r\n", " | ")); timer.Stop(); app.ConfirmExit = m => true; app.Exit(); };
+            System.Threading.ThreadExceptionEventHandler onError = (s, e) => { Check(false, "처리되지 않은 예외", e.Exception.ToString().Replace("\r\n", " | ")); timer.Stop(); app.ConfirmExit = m => true; app.Exit(); };
+            Application.ThreadException += onError;
             timer.Tick += (s, e) =>
             {
                 if (app.Data == null || busy) return;
                 busy = true;
                 i++;
                 if (i >= steps.Length) { timer.Stop(); app.ConfirmExit = m => true; app.Exit(); return; }
-                try { steps[i](app); }
+                try { steps[i](app); completed++; }
                 catch (Exception ex) { Check(false, "단계 " + i + " 예외", ex.ToString().Replace("\r\n", " | ")); i = steps.Length; }
                 busy = false;
             };
-            timer.Start();
-            if (before != null) before(app);
-            app.Run();
+            try
+            {
+                timer.Start();
+                if (before != null) before(app);
+                app.Run();
+                Check(completed == steps.Length, "UI steps completed", completed + "/" + steps.Length);
+            }
+            finally
+            {
+                timer.Stop();
+                timer.Dispose();
+                Application.ThreadException -= onError;
+            }
         }
 
         [STAThread]
@@ -122,7 +130,14 @@ namespace MemoDoumi
             {
                 switch (scenario + "/" + phase)
                 {
+                    case "earlyexit/prepare": Plain(1); break;
+                    case "earlyexit/run":
+                        RunApp(null,
+                            app => app.Exit(),
+                            app => File.WriteAllText(Path.Combine(Base, "unexpected-step.txt"), "ran"));
+                        break;
                     case "links/run": Links(); break;
+                    case "codec/run": Codec(); break;
                     case "ids/prepare": IdsPrepare(); break;
                     case "ids/run1": IdsRun1(); break;
                     case "ids/run2": IdsRun2(); break;
@@ -156,7 +171,25 @@ namespace MemoDoumi
                 }
             }
             catch (Exception ex) { Check(false, "예외", ex.ToString().Replace("\r\n", " | ")); }
-            return failures;
+            File.WriteAllText(Path.Combine(Base, scenario + "-" + phase + ".complete"), failures.ToString());
+            return failures == 0 ? 0 : 1;
+        }
+
+        static void Codec()
+        {
+            foreach (bool anchored in new[] { false, true })
+            foreach (bool pinned in new[] { false, true })
+            {
+                var n = new NoteData { Id = Id(1), Text = "한글 **본문**", X = -320, Y = 240, W = 270, H = 250, Pinned = pinned, Anchored = anchored, Md = true };
+                bool header, bad;
+                NoteData read = NoteCodec.Parse(NoteCodec.Compose(n), out header, out bad);
+                Check(read.Text == n.Text && read.Pinned == pinned && read.Anchored == anchored, "서식·좌표 방식 왕복");
+                if (anchored || pinned) Check(read.X == -320 && read.Y == 240, "음수 좌표 포함 위치 왕복");
+            }
+            bool h, b;
+            var old = NoteCodec.Parse("---\nid: " + Id(2) + "\npos: -10,20\npinned: true\n---\nold\n", out h, out b);
+            Check(old.Anchored && old.X == -10 && old.Y == 20, "기존 pos는 상대 좌표로 호환");
+            Check(!Directory.Exists(DataDir), "코덱은 데이터 폴더를 만들지 않음");
         }
 
         static void Plain(int count)
@@ -799,7 +832,7 @@ namespace MemoDoumi
                 },
                 app =>
                 {
-                    typeof(App).GetMethod("SearchClosed").Invoke(app, new object[] { true });
+                    app.SearchClosed(true);
                     foreach (Form w in Application.OpenForms) if (w is SearchForm) w.Hide();
                     WaitFor(() => false, 600);
                     NoteForm f = FindForm(app, app.Data.Notes[0]);
@@ -1021,22 +1054,20 @@ namespace MemoDoumi
             TextBox input = null;
             System.Collections.IList hits = null;
             VirtualList list = null;
-            FieldInfo cost = typeof(SearchForm).GetField("lastCostMs", Private);
-            MethodInfo key = typeof(SearchForm).GetMethod("OnInputKeyDown", Private);
-            Func<int, NoteData> noteAt = i => (NoteData)hits[i].GetType().GetField("Note").GetValue(hits[i]);
+            Func<int, NoteData> noteAt = i => search.VerifyNoteAt(i);
             Func<App, string, int> expected = (app, q) => app.Data.Notes.FindAll(n => Markdown.Plain(n).IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0).Count;
             int before = 0;
             RunApp(null,
                 app =>
                 {
                     app.OpenSearch();
-                    search = (SearchForm)Field(app, "search");
-                    input = (TextBox)Field(search, "input");
-                    hits = (System.Collections.IList)Field(search, "hits");
-                    list = (VirtualList)Field(search, "list");
+                    search = app.VerifySearch;
+                    input = search.VerifyInput;
+                    hits = search.VerifyHits;
+                    list = search.VerifyList;
                     Check(hits.Count == 301 && list.Count == 301, "빈 검색어: 전체 목록", hits.Count.ToString());
                     Check(noteAt(0).Id == Id(900), "최근 메모가 맨 위");
-                    cost.SetValue(search, 0.0);
+                    search.VerifyCost = 0.0;
                     input.Text = "BODY-1";
                     Check(hits.Count == expected(app, "BODY-1") && hits.Count == 111, "입력 즉시 결과 (가벼울 때는 지연 없음)", hits.Count.ToString());
                     Check(list.Current == 0, "첫 결과가 선택됨", list.Current.ToString());
@@ -1055,10 +1086,10 @@ namespace MemoDoumi
                         search.DrawToBitmap(bmp, new Rectangle(0, 0, search.Width, search.Height));
                         bmp.Save(Path.Combine(Base, "search.png"));
                     }
-                    for (int i = 0; i < 3; i++) key.Invoke(search, new object[] { input, new KeyEventArgs(Keys.Down) });
+                    for (int i = 0; i < 3; i++) search.VerifyKey(Keys.Down);
                     Check(list.Current == 3, "↓ 세 번: 넷째 줄 선택", list.Current.ToString());
                     NoteData want = noteAt(3);
-                    key.Invoke(search, new object[] { input, new KeyEventArgs(Keys.Enter) });
+                    search.VerifyKey(Keys.Enter);
                     NoteForm f = FindForm(app, want);
                     Check(f != null && f.Visible && app.Data.CurrentId == want.Id, "Enter: 고른 메모가 열림");
                     Check(f != null && BoxOf(f).SelectedText == "BODY-1", "찾은 글자가 선택됨", f == null ? "" : BoxOf(f).SelectedText);
@@ -1068,7 +1099,7 @@ namespace MemoDoumi
                     app.OpenSearch();
                     input.Text = "검색어";
                     Check(hits.Count == 1 && noteAt(0).Id == Id(900), "한글 검색어", hits.Count.ToString());
-                    key.Invoke(search, new object[] { input, new KeyEventArgs(Keys.Enter) });
+                    search.VerifyKey(Keys.Enter);
                     NoteForm f = FindForm(app, app.Data.Notes.Find(n => n.Id == Id(900)));
                     Check(f != null && BoxOf(f).SelectedText == "검색어", "서식이 있는 메모에서도 찾은 위치가 맞음", f == null ? "" : BoxOf(f).SelectedText);
                 },
@@ -1078,7 +1109,7 @@ namespace MemoDoumi
                     app.OpenSearch();
                     input.Text = "BODY-2";
                     before = hits.Count;
-                    cost.SetValue(search, 100.0);
+                    search.VerifyCost = 100.0;
                     input.Text = "BODY-29";
                     input.Text = "BODY-299";
                     Check(hits.Count == before, "무거울 때: 입력 직후에는 목록이 그대로", hits.Count + " / " + before);
@@ -1088,9 +1119,9 @@ namespace MemoDoumi
                 {
                     Check(hits.Count == 1 && noteAt(0).Text.Contains("BODY-299"), "무거울 때: 입력이 멈춘 뒤 마지막 입력으로 한 번 찾음", hits.Count.ToString());
 
-                    cost.SetValue(search, 100.0);
+                    search.VerifyCost = 100.0;
                     input.Text = "BODY-77";
-                    key.Invoke(search, new object[] { input, new KeyEventArgs(Keys.Enter) });
+                    search.VerifyKey(Keys.Enter);
                     NoteData cur = app.Data.Notes.Find(n => n.Id == app.Data.CurrentId);
                     Check(cur != null && cur.Text.Contains("BODY-77") && BoxOf(FindForm(app, cur)).SelectedText == "BODY-77",
                         "지연 중 Enter: 지금 입력의 결과가 열림", cur == null ? "" : cur.Text.Replace("\n", " "));
@@ -1154,9 +1185,8 @@ namespace MemoDoumi
                     Check(cur != null && cur.Visible, "표시 중인 말풍선은 유지");
 
                     bool fonts = Alive(App.MenuFont);
-                    foreach (string name in new[] { "NoteFont", "PosFont", "TimeFont" })
-                        fonts &= Alive((Font)typeof(NoteForm).GetField(name, BindingFlags.Static | BindingFlags.NonPublic).GetValue(null));
-                    fonts &= Alive((Font)typeof(IconButton).GetField("IconFont", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null));
+                    foreach (Font font in NoteForm.VerifyFonts) fonts &= Alive(font);
+                    fonts &= Alive(IconButton.VerifyFont);
                     Check(fonts, "공유 글꼴이 살아 있음");
                     bool swatches = true;
                     for (int i = 0; i < Palette.Names.Length; i++) { try { swatches &= Palette.Swatch(i).Width == 16; } catch { swatches = false; } }
@@ -1178,7 +1208,7 @@ namespace MemoDoumi
                     Check(again.Location == expect, "위치 유지 (말풍선은 강아지 기준)", again.Location + " / " + expect);
                     Check(pinnedForm.Location == new Point(300, 200) && dp.X == 300 && dp.Y == 200, "고정 메모 위치 유지", pinnedForm.Location.ToString());
                     // 색 메뉴와 편집 메뉴가 새 창에서도 열리는지 (공유 리소스를 쓰는 부분)
-                    var colorMenu = (ContextMenuStrip)Field(again, "colorMenu");
+                    var colorMenu = again.VerifyColorMenu;
                     colorMenu.Show(again, new Point(5, 5));
                     Application.DoEvents();
                     Check(colorMenu.Visible, "색 메뉴 열림");
@@ -1209,7 +1239,7 @@ namespace MemoDoumi
             Check(d0 != null && d0.W + "x" + d0.H == File.ReadAllText(Path.Combine(Base, "size0.txt")), "다시 실행해도 크기 그대로");
             Check(d.Notes.Count == 80, "메모 수", d.Notes.Count.ToString());
             NoteData dp = d.Notes.Find(n => n.Id == Id(61));
-            Info("고정 메모의 저장된 위치 (실행 중에는 300,200)", dp == null ? "없음" : "pinned=" + dp.Pinned + " anchored=" + dp.Anchored + " X=" + dp.X + " Y=" + dp.Y);
+            Check(dp != null && dp.Pinned && !dp.Anchored && dp.X == 300 && dp.Y == 200, "고정 메모 위치가 재실행 후 보존됨");
         }
     }
 }
