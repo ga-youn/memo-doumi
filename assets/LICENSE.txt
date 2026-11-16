@@ -3,6 +3,7 @@ Copyright (c) 2026 ga-youn (https://github.com/ga-youn). All rights reserved.
 
 적용 대상
 - 소스 저장소의 assets/sprites/ 이미지와 assets/icon.ico
+- 위 자산이 포함된 사용 데모 docs/demo.gif
 - 배포본의 sprites/ 이미지 및 실행 파일에 포함된 해당 아이콘
 
 허용 범위

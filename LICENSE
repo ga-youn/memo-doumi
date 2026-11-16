@@ -19,7 +19,7 @@ Copyright (c) 2026 ga-youn (https://github.com/ga-youn)
 별도 이용 허락은 프로젝트 저장소의 관리자에게 문의하세요.
 
 4. 강아지 이미지·아이콘 및 제3자 자료
-assets/sprites/의 이미지와 assets/icon.ico에는 assets/LICENSE.txt의
+assets/sprites/의 이미지, assets/icon.ico 및 docs/demo.gif에는 assets/LICENSE.txt의
 별도 조건이 적용됩니다. 실행 파일에 포함된 아이콘에도 같은 조건이
 적용되므로, 해당 자산을 포함한 실행 파일의 재배포에는 별도 허락이 필요합니다.
 배포 ZIP에서는 이 별도 조건을 ASSET-LICENSE.txt로 제공합니다.
