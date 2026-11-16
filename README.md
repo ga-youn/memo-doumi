@@ -123,7 +123,7 @@ cmd /c build.cmd
 powershell -ExecutionPolicy Bypass -File tools\Package-Release.ps1 -Version 0.1.0
 ```
 
-허용 목록에 있는 파일만 담습니다: `MemoDoumi.exe`, 캐릭터 이미지 7개, Pretendard 글꼴 2개와 라이선스, `docs\사용법.txt`. `data`, `trash`, 백업, 로그, 측정 데이터는 들어가지 않으며, ZIP 내용이 목록과 다르면 만들지 않습니다. `release\MemoDoumi` 폴더에는 실제 메모가 들어 있을 수 있으므로 그 폴더를 직접 압축해 공유하지 마세요.
+허용 목록에 있는 파일만 담습니다: `MemoDoumi.exe`, 캐릭터 이미지 7개, Pretendard 글꼴 2개와 라이선스, `docs\사용법.txt`, `LICENSE`, `ASSET-LICENSE.txt`. `data`, `trash`, 백업, 로그, 측정 데이터는 들어가지 않으며, ZIP 내용이 목록과 다르면 만들지 않습니다. `release\MemoDoumi` 폴더에는 실제 메모가 들어 있을 수 있으므로 그 폴더를 직접 압축해 공유하지 마세요.
 
 ### 검증 도구
 
@@ -146,3 +146,13 @@ powershell -ExecutionPolicy Bypass -File tools\Package-Release.ps1 -Version 0.1.
 프로세스가 종료된 뒤 실행 파일과 이미지를 교체하고, 기존 `data` 폴더는 유지하세요.
 
 앱을 제거하려면 **Windows 시작 시 자동 실행**을 해제하고 종료한 뒤 앱 폴더를 삭제합니다. 필요한 메모는 먼저 백업하세요. 별도 저장 위치를 사용했다면 `%APPDATA%\MemoDoumi`에도 데이터가 남아 있습니다.
+
+## 라이선스
+
+이 프로젝트는 비상업적 이용을 허용하는 소스 공개 프로젝트입니다.
+
+- **코드·도구·문서:** 비상업적 사용·수정·재배포를 허용합니다. 판매, 유료 서비스 편입, 광고 수익화 등 상업적 이용은 사전 서면 허락이 필요합니다. [LICENSE](LICENSE)
+- **강아지 이미지·아이콘:** 이 앱의 비상업적 사용에 필요한 이용만 허용합니다. 다른 프로젝트에서 재사용하거나, 해당 자산을 포함한 앱을 재배포하려면 별도 허락이 필요합니다. [자산 이용 조건](assets/LICENSE.txt)
+- **Pretendard:** SIL Open Font License 1.1이 적용됩니다. [글꼴 라이선스](assets/fonts/Pretendard-LICENSE.txt)
+
+코드를 재배포할 때는 라이선스와 저작권 표시를 유지하세요. 이미지·아이콘을 포함하지 않는 수정본은 본인에게 사용 권한이 있는 자산으로 교체해 배포할 수 있습니다.

@@ -14,6 +14,8 @@ $sprites = 'blink.png', 'happy.png', 'sleep.png', 'stand.png', 'wag.png', 'walk1
 
 $allow = [ordered]@{}
 $allow[(Join-Path $root 'build\MemoDoumi.exe')] = 'MemoDoumi.exe'
+$allow[(Join-Path $root 'LICENSE')] = 'LICENSE'
+$allow[(Join-Path $root 'assets\LICENSE.txt')] = 'ASSET-LICENSE.txt'
 $allow[(Join-Path $root "docs\$guide")] = $guide
 foreach ($s in $sprites) { $allow[(Join-Path $root "assets\sprites\$s")] = "sprites\$s" }
 foreach ($f in 'Pretendard-Regular.ttf', 'Pretendard-Bold.ttf', 'Pretendard-LICENSE.txt') { $allow[(Join-Path $root "assets\fonts\$f")] = "fonts\$f" }
